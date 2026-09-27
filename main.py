@@ -3,7 +3,6 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
-import streamlit as st
 
 load_dotenv()
 
@@ -12,7 +11,7 @@ groq_client = Groq(api_key=api_key)
 
 def get_weather(lat, lng):
     try:
-        url = "https://api.open-meteo.com/v1/forecast?latitude=27.7017&longitude=85.3206&current_weather=true&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,windspeed_10m,rain"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,windspeed_10m,rain"
 
         response = requests.get(url)
         data = response.json()
@@ -21,36 +20,35 @@ def get_weather(lat, lng):
         hourly_data = data.get("hourly", {})
 
         if not current_weather:
-            return "Weather data not available for the specified location."
+            return "Weather data not available."
 
         result = {
             "current_weather": current_weather,
             "next_5_hours": [
                 {
-                "time": hourly_data["time"][i],
-                "temperature_2m": hourly_data["temperature_2m"][i],
-                "apparent_temperature": hourly_data["apparent_temperature"][i],
-                "relative_humidity_2m": hourly_data["relative_humidity_2m"][i],
-                "windspeed_10m": hourly_data["windspeed_10m"][i],
-                "rain": hourly_data["rain"][i]
+                    "time": hourly_data["time"][i],
+                    "temperature_2m": hourly_data["temperature_2m"][i],
+                    "apparent_temperature": hourly_data["apparent_temperature"][i],
+                    "relative_humidity_2m": hourly_data["relative_humidity_2m"][i],
+                    "windspeed_10m": hourly_data["windspeed_10m"][i],
+                    "rain": hourly_data["rain"][i]
                 }
                 for i in range(min(5, len(hourly_data.get("time", []))))
             ]
         }
+
         return json.dumps(result, indent=4)
+
     except Exception as e:
-        return f"An error occurred while fetching weather data: {str(e)}"
+        return f"Error: {str(e)}"
 
-
-# print(get_weather(27.7017, 85.3206)) 
 
 def get_weather_tool_properties():
     return {
         "type": "function",
-        "function":{
+        "function": {
             "name": "get_weather",
-            "description": """Get the weather information of a city using the city's latitude and longitude. 
-            it provides current weather and next 5 hours weather information.""",
+            "description": "Get weather information using latitude and longitude.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -68,12 +66,17 @@ def get_weather_tool_properties():
         }
     }
 
+
+k = 10
+history = []
+
+
 def run_weather_agent(user_input):
     system_prompt = {
         "role": "system",
-        "content": """You are a helpful assistant that can answer questions about the weather in different cities. 
-        If the user asks about the weather in a specific city, you should use relevant tools to get the inforamation.
-        Anything not related to weather information should be answered based on your own knowledge."""
+        "content": """You are a helpful weather assistant.
+        Use the get_weather tool when the user asks about weather.
+        Use previous conversation context to understand follow-up questions."""
     }
 
     user_prompt = {
@@ -81,44 +84,58 @@ def run_weather_agent(user_input):
         "content": user_input
     }
 
+    history.append(user_prompt)
+
+    memory_context = [system_prompt] + history[-(k * 2):]
+
     response = groq_client.chat.completions.create(
         model="openai/gpt-oss-120b",
-        messages=[system_prompt, user_prompt],
+        messages=memory_context,
         max_tokens=1500,
         temperature=0.7,
-        tools = [get_weather_tool_properties()],
-        tool_choice ="auto"
+        tools=[get_weather_tool_properties()],
+        tool_choice="auto"
     )
 
-    tool_call_decisions = response.choices[0].message.tool_calls
+    assistant_message = response.choices[0].message
 
-    if tool_call_decisions:
-        for tool_call in tool_call_decisions:
+    if assistant_message.tool_calls:
+        memory_context.append(assistant_message)
+
+        for tool_call in assistant_message.tool_calls:
             if tool_call.function.name == "get_weather":
-                lat = json.loads(tool_call.function.arguments).get("lat")
-                lng = json.loads(tool_call.function.arguments).get("lng")
+                arguments = json.loads(tool_call.function.arguments)
+
+                lat = arguments.get("lat")
+                lng = arguments.get("lng")
+
                 weather_info = get_weather(lat, lng)
 
-                tool_response = {
+                memory_context.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "name": "get_weather", 
                     "content": weather_info
-                }
-                response = groq_client.chat.completions.create(
-                    model="openai/gpt-oss-120b",
-                    messages=[system_prompt, user_prompt, tool_response],
-                    max_tokens=1500,
-                    temperature=0.7,
-                    tools = [get_weather_tool_properties()],
-                    tool_choice ="auto"
-                )
+                })
 
-                result = response.choices[0].message.content
-    else:
+        response = groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=memory_context,
+            max_tokens=1500,
+            temperature=0.7
+        )
+
         result = response.choices[0].message.content
+
+    else:
+        result = assistant_message.content
+
+    history.append({
+        "role": "assistant",
+        "content": result
+    })
+
     return result
 
-result = run_weather_agent("What is the weather in Kathmandu Nepal?")
 
+result = run_weather_agent("What is the weather in Kathmandu Nepal?")
 print(result)
