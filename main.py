@@ -68,5 +68,57 @@ def get_weather_tool_properties():
         }
     }
 
-def run_weather_tool():
-    pass
+def run_weather_agent(user_input):
+    system_prompt = {
+        "role": "system",
+        "content": """You are a helpful assistant that can answer questions about the weather in different cities. 
+        If the user asks about the weather in a specific city, you should use relevant tools to get the inforamation.
+        Anything not related to weather information should be answered based on your own knowledge."""
+    }
+
+    user_prompt = {
+        "role": "user",
+        "content": user_input
+    }
+
+    response = groq_client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[system_prompt, user_prompt],
+        max_tokens=1500,
+        temperature=0.7,
+        tools = [get_weather_tool_properties()],
+        tool_choice ="auto"
+    )
+
+    tool_call_decisions = response.choices[0].message.tool_calls
+
+    if tool_call_decisions:
+        for tool_call in tool_call_decisions:
+            if tool_call.function.name == "get_weather":
+                lat = json.loads(tool_call.function.arguments).get("lat")
+                lng = json.loads(tool_call.function.arguments).get("lng")
+                weather_info = get_weather(lat, lng)
+
+                tool_response = {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": "get_weather", 
+                    "content": weather_info
+                }
+                response = groq_client.chat.completions.create(
+                    model="openai/gpt-oss-120b",
+                    messages=[system_prompt, user_prompt, tool_response],
+                    max_tokens=1500,
+                    temperature=0.7,
+                    tools = [get_weather_tool_properties()],
+                    tool_choice ="auto"
+                )
+
+                result = response.choices[0].message.content
+    else:
+        result = response.choices[0].message.content
+    return result
+
+result = run_weather_agent("What is the weather in Kathmandu Nepal?")
+
+print(result)
