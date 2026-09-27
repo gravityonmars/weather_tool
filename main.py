@@ -100,7 +100,7 @@ def run_weather_agent(user_input):
     assistant_message = response.choices[0].message
 
     if assistant_message.tool_calls:
-        memory_context.append(assistant_message)
+        history.append(assistant_message)
 
         for tool_call in assistant_message.tool_calls:
             if tool_call.function.name == "get_weather":
@@ -111,15 +111,19 @@ def run_weather_agent(user_input):
 
                 weather_info = get_weather(lat, lng)
 
-                memory_context.append({
+                tool_response_msg = {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
                     "content": weather_info
-                })
+                }
+
+                history.append(tool_response_msg)
+
+        full_context = [system_prompt] + history[-(k * 2):]
 
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=memory_context,
+            messages=full_context,
             max_tokens=1500,
             temperature=0.7
         )
@@ -136,6 +140,7 @@ def run_weather_agent(user_input):
 
     return result
 
-
-result = run_weather_agent("What is the weather in Kathmandu Nepal?")
-print(result)
+while True:
+    user = input("User: ")
+    result = run_weather_agent(user)
+    print(f"Assistant: {result}\n")
