@@ -42,9 +42,31 @@ def get_weather(lat, lng):
         return f"An error occurred while fetching weather data: {str(e)}"
 
 
-print(get_weather(27.7017, 85.3206)) 
-def get_weather_properties():
-    pass
+# print(get_weather(27.7017, 85.3206)) 
+
+def get_weather_tool_properties():
+    return {
+        "type": "function",
+        "function":{
+            "name": "get_weather",
+            "description": """Get the weather information of a city using the city's latitude and longitude. 
+            it provides current weather and next 5 hours weather information.""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {
+                        "type": "number",
+                        "description": "Latitude of the city"
+                    },
+                    "lng": {
+                        "type": "number",
+                        "description": "Longitude of the city"
+                    }
+                },
+                "required": ["lat", "lng"]
+            }
+        }
+    }
 
 def run_weather_tool():
     pass
