@@ -3,11 +3,14 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
+import streamlit as st
 
 load_dotenv()
 
 api_key = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=api_key)
+
+st.title("Weather APP")
 
 def get_weather(lat, lng):
     try:
@@ -66,10 +69,10 @@ def get_weather_tool_properties():
         }
     }
 
+if "history" not in st.session_state:
+    st.session_state.history = []
 
 k = 10
-history = []
-
 
 def run_weather_agent(user_input):
     system_prompt = {
@@ -84,9 +87,9 @@ def run_weather_agent(user_input):
         "content": user_input
     }
 
-    history.append(user_prompt)
+    st.session_state.history.append(user_prompt)
 
-    memory_context = [system_prompt] + history[-(k * 2):]
+    memory_context = [system_prompt] + st.session_state.history[-(k * 2):]
 
     response = groq_client.chat.completions.create(
         model="openai/gpt-oss-120b",
@@ -100,7 +103,7 @@ def run_weather_agent(user_input):
     assistant_message = response.choices[0].message
 
     if assistant_message.tool_calls:
-        history.append(assistant_message)
+        st.session_state.history.append(assistant_message)
 
         for tool_call in assistant_message.tool_calls:
             if tool_call.function.name == "get_weather":
@@ -117,9 +120,9 @@ def run_weather_agent(user_input):
                     "content": weather_info
                 }
 
-                history.append(tool_response_msg)
+                st.session_state.history.append(tool_response_msg)
 
-        full_context = [system_prompt] + history[-(k * 2):]
+        full_context = [system_prompt] + st.session_state.history[-(k * 2):]
 
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -133,14 +136,26 @@ def run_weather_agent(user_input):
     else:
         result = assistant_message.content
 
-    history.append({
+    st.session_state.history.append({
         "role": "assistant",
         "content": result
     })
 
     return result
 
-while True:
-    user = input("User: ")
+
+for msg in st.session_state.history:
+    if isinstance(msg, dict):
+        role = msg.get("role")
+        content = msg.get("content")
+
+        if role == "user" and content:
+            st.markdown(f"<div style='text-align: right;'>{content}</div>", unsafe_allow_html=True)
+        if role == "assistant" and content:
+                st.markdown(f"<div style='text-align: left;'>{content}</div>", unsafe_allow_html=True)
+
+user = st.chat_input("How can I help you today?")
+if user:
+    st.markdown(f"<div style='text-align: right;'>{user}</div>", unsafe_allow_html=True)
     result = run_weather_agent(user)
-    print(f"Assistant: {result}\n")
+    st.write(result)
